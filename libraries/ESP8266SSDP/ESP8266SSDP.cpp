@@ -197,23 +197,14 @@ bool SSDPClass::begin(){
   return true;
 }
 
-void SSDPClass::_send(ssdp_method_t method){
+
+
+
+void SSDPClass::_send(ssdp_method_t method,  char* st, char *usn){
   char buffer[1460];
   uint32_t ip = WiFi.localIP();
 
-  int len = snprintf(buffer, sizeof(buffer),
-    _ssdp_packet_template,
-    (method == NONE)?_ssdp_response_template:_ssdp_notify_template,
-    SSDP_INTERVAL,
-    _modelName, _modelNumber,
-    _uuid,
-    (method == NONE)?"ST":"NT",
-    _deviceType,
-    IP2STR(&ip), _port, _schemaURL
-  );
-
-  _server->append(buffer, len);
-
+  
   ip_addr_t remoteAddr;
   uint16_t remotePort;
   if(method == NONE) {
@@ -225,6 +216,7 @@ void SSDPClass::_send(ssdp_method_t method){
   } else {
     remoteAddr.addr = SSDP_MULTICAST_ADDR;
     remotePort = SSDP_PORT;
+    st = _deviceType;
 #ifdef DEBUG_SSDP
     DEBUG_SSDP.println("Sending Notify to ");
 #endif
@@ -235,8 +227,23 @@ void SSDPClass::_send(ssdp_method_t method){
   DEBUG_SSDP.println(remotePort);
 #endif
 
+// ::upnp:rootdevice
+  int len = snprintf(buffer, sizeof(buffer),
+    _ssdp_packet_template,
+    (method == NONE)?_ssdp_response_template:_ssdp_notify_template,
+    SSDP_INTERVAL,
+    _modelName, _modelNumber,
+    usn,
+    (method == NONE)?"ST":"NT",
+    st,
+    IP2STR(&ip), _port, _schemaURL
+  );
+
+  _server->append(buffer, len);
+
   _server->send(&remoteAddr, remotePort);
 }
+
 
 void SSDPClass::schema(WiFiClient client){
   uint32_t ip = WiFi.localIP();
@@ -256,6 +263,8 @@ void SSDPClass::schema(WiFiClient client){
 }
 
 void SSDPClass::_update(){
+
+
   if(!_pending && _server->next()) {
     ssdp_method_t method = NONE;
 
@@ -272,7 +281,7 @@ void SSDPClass::_update(){
     uint8_t cr = 0;
 
     char buffer[SSDP_BUFFER_SIZE] = {0};
-
+   
     while(_server->getSize() > 0){
       char c = _server->read();
 
@@ -322,8 +331,12 @@ void SSDPClass::_update(){
                   DEBUG_SSDP.printf("REJECT: %s\n", (char *)buffer);
 #endif
                 }
+                char uuid_buffer[100];
+                sprintf(uuid_buffer, "uuid:%s", _uuid);
+
                 // if the search type matches our type, we should respond instead of ABORT
-                if(strcmp(buffer, _deviceType) == 0){
+                if((strcmp(buffer, "upnp:rootdevice") == 0) || (strcmp(buffer, uuid_buffer) == 0)) {
+                  DEBUG_SSDP.printf("ACCEPT: %s\n", (char *)buffer);
                   _pending = true;
                   _process_time = millis();
                   state = KEY;
@@ -352,12 +365,22 @@ void SSDPClass::_update(){
     }
   }
 
-  if(_pending && (millis() - _process_time) > _delay){
+  if(_pending  && (millis() - _process_time) > _delay){
     _pending = false; _delay = 0;
-    _send(NONE);
+
+    char st[64];
+    char usn[64];
+    sprintf(usn, "%s::%s",_uuid, "upnp:rootdevice");
+    _send(NONE, "upnp:rootdevice", usn);
+
+    sprintf(st, "uuid:%s", _uuid);
+    _send(NONE, st, _uuid);
+
+    sprintf(usn, "%s::%s",_uuid, _deviceType);
+    _send(NONE, _deviceType, usn);
   } else if(_notify_time == 0 || (millis() - _notify_time) > (SSDP_INTERVAL * 1000L)){
     _notify_time = millis();
-    _send(NOTIFY);
+    _send(NOTIFY, _deviceType, _uuid);
   }
 
   if (_pending) {
