@@ -216,7 +216,6 @@ void SSDPClass::_send(ssdp_method_t method,  char* st, char *usn){
   } else {
     remoteAddr.addr = SSDP_MULTICAST_ADDR;
     remotePort = SSDP_PORT;
-    st = _deviceType;
 #ifdef DEBUG_SSDP
     DEBUG_SSDP.println("Sending Notify to ");
 #endif
